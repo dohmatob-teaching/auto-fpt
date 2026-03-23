@@ -3,7 +3,7 @@ Synopsis: Helper functions for FPT calculations (e.g R-transform, etc.).
 Author: Elvis Dohmatob, Arjun Subramonian
 """
 from sympy import (Matrix, Identity, ZeroMatrix, BlockMatrix,
-                   block_collapse, inv_quick, simplify, factor, sqrt, 
+                   block_collapse, inv_quick, simplify, factor, sqrt,
                    MatrixExpr, Pow, Inverse, MatPow, Add, Mul, MatAdd, MatMul, Transpose)
 from sympy.matrices.expressions.matexpr import Transpose
 import numpy as np
@@ -42,9 +42,11 @@ def scalarize_block_matrix(M, var_bindings):
                     binding = var_bindings[var]
                     if var.shape != block.shape:
                         continue
-                    elif var in block.free_symbols or var.T in block.free_symbols:
+                    elif (var in block.free_symbols
+                         or var.T in block.free_symbols):
                         if p == q:
-                            A[i, j] = block[0, 0].subs(sqrt(var)[0, 0], sqrt(binding))
+                            A[i, j] = block[0, 0].subs(sqrt(var)[0, 0],
+                                                       sqrt(binding))
                             A[i, j] = A[i, j].subs(var[0, 0], binding)
                         else:
                             A[i, j] = block[0, 0].subs(var[0, 0], binding)
@@ -166,6 +168,7 @@ def inv_heuristic(diff):
 
     where A and D are sparse.
     """
+    return diff.inv()  # XXX rm
     n0 = diff.shape[0]
     if n0 <= 5:
         return diff.inv()

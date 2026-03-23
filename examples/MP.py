@@ -15,6 +15,7 @@ import pickle as pkl
 # Form the design matrix.
 n = Symbol(r'n', integer=True, positive=True)
 d = Symbol(r'd', integer=True, positive=True)
+lambd = Symbol("lambda", positive=True)
 Z = MatrixSymbol(r'Z', n, d)
 phi = Symbol(r"\phi", positive=True)
 
@@ -37,6 +38,6 @@ j = np.flatnonzero(v)[0]
 # Get free probability equations defining the limiting value of the
 # trace of the resolvent. The normalize="full" option allows us to apply
 # the variance 1/(n*lambda) of the entries of the random matrix Z.
-eqns = calc(Q, random_matrices='Z', row_idx=i, col_idx=j, normalize='full',
+eqns = calc(Q, variances={Z: 1 / (n * lambd)}, row_idx=i, col_idx=j,
             subs={d: n * phi}, verbose=1)
 print(',\\\\\n'.join([latex(eqn) for eqn in eqns]))

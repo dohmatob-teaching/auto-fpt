@@ -48,6 +48,6 @@ row_idx = np.flatnonzero(u)[0]
 col_idx = np.flatnonzero(v)[0]
 
 variances = {Z1: 1 / (n * lambd), Z2: 1 / (n * lambd)}
-eqns = calc(Q, random_matrices=["Z_1", "Z_2"], row_idx=row_idx, col_idx=col_idx,
+eqns = calc(Q, row_idx=row_idx, col_idx=col_idx,
             variances=variances, subs={n1: n * p1, n2: n * p2, d: n * phi})
 print(',\\\\\n'.join([latex(eqn) for eqn in eqns]))

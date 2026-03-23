@@ -43,7 +43,8 @@ def remove_duplicates(G, expr, classes):
             expr = expr.subs(G[i, j], G[i0, j0])
     return simplify(expr)
 
-def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None, subs=None):
+def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
+                                    subs=None):
     expr = diff_inv[row_idx, col_idx]
     expr = remove_duplicates(G=G, expr=expr, classes=classes)
     eqs = [Eq(G[row_idx, col_idx], expr)]
@@ -70,12 +71,11 @@ def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
     subs = {k: v for k, v in subs.items() if k is not None}
     if subs is not None:
         eqs = [eq.subs(subs) for eq in eqs]
-    
     eqs = [factor(simplify(eq)) for eq in eqs]
     return expr, eqs
 
 
-def calc(Q, random_matrices=None, row_idx=None, col_idx=None, 
+def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
          verbose=0, normalize=None, subs=None, variances=None,
          display=pretty_print):
     """
@@ -90,13 +90,20 @@ def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
     """
     if None in [row_idx, col_idx]:
         raise ValueError("Both row_idx and col_idx required in function call!")
+    print(variances)
+    if variances is None:
+        raise ValueError("A dictionary must be specified for variances")
+    if random_matrices is None:
+        random_matrices = list(variances.keys())
+    else:
+        for key in variances:
+            assert key in random_matrices
 
     n0 = Q.blocks.shape[0]
     if verbose:
         print("Q = ")
         display(Q)
         print("Size of pencil: %i x %i" % (n0, n0))
-
     free_symbols = list(Q.free_symbols)
     free_symbols = dict(zip(map(str, free_symbols), free_symbols))
     random_matrices = list(random_matrices)
@@ -110,7 +117,8 @@ def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
     # This corrective piece of code only exist because the input pencils
     # are usually as if n = lambda = 1
     if variances is None:
-        n, lambd, d = [free_symbols.get(symb, symbols(symb)) for symb in "n lambda d".split()]
+        n, lambd, d = [free_symbols.get(symb, symbols(symb))
+                       for symb in "n lambda d".split()]
         variances = {}
         if normalize is not None:
             for rmat in rands:
@@ -148,7 +156,7 @@ def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
     for k, v in matrix_symbols.items()))
 
     print("\nPreparing matrix-to-scalar identification...")
-    matrix_to_scalar_map = dict((v, symbols("x%d" % idx))
+    matrix_to_scalar_map = dict((v, symbols("x%d" % idx, commutative=True))
     for idx, v in enumerate(matrix_symbols.values()))
     tmp = {}
     for k, v in matrix_symbols.items():
@@ -207,11 +215,12 @@ def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
         for val, indices in classes.items():
             print("\t%s: %s" % (indices, val))
 
-    # Setup sough-for matrix of normalized traces
+    # Setup sought-for matrix of normalized traces
     print("\nInferring relevant mask...")
+    print()
     mask = np.ones(q.shape, dtype=int)
     mask[np.array(q_inv, dtype=object) == 0] = 0
-    mask = Matrix(mask)  # sparsity structure of G, infered from that of Q
+    mask = Matrix(mask)  # sparsity structure of G, infered from that of Qinv
     if verbose:
         display(mask)
 
@@ -222,37 +231,43 @@ def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
 
     # Compute R-transform
     print("\nComputing R-transform R = R(G) matrix...")
-    r_ = free_proba_utils.R_transform(Qx_, G_, rands=rands,
-                                          variances=variances)
+    r_ = free_proba_utils.R_transform(Qx_, G_, rands=rands, variances=variances)
     r_.simplify()
+    r = r_[n0:, :n0]
     if verbose:
-        print("r_ = ")
-        display(r_)
+        print("r = ")
+        display(r)
 
     # Invert difference of R-transform and constant matrices
     print("\nComputing F - R(G) matrix...")
-    r = r_[:n0, n0:].T
     diff = f - r
     diff = simplify(diff)
+    if verbose:
+        print("F - R(G) = ")
+        display(diff)
 
     print("\nComputing inverse...")
     diff_inv = free_proba_utils.inv_heuristic(diff)
+    if verbose:
+        print("inv(F - R(G)) = ")
+        display(diff_inv)
 
     print("\nComputing fixed-point equations...")
     _, eqs = construct_fixed_point_equations(G=G, diff_inv=diff_inv,
-                                                row_idx=row_idx,
-                                                col_idx=col_idx,
-                                                classes=classes,
-                                                subs=subs)
+                                             row_idx=row_idx,
+                                             col_idx=col_idx,
+                                             classes=classes,
+                                             subs=subs)
 
     print("\nMatricizing equations...")
-    
+
     print("\nThe fixed-point equations are:\n")
     returned_eqs = []
     for eq in eqs:
         scalar_to_matrix_map = {v : k for k, v in matrix_to_scalar_map.items()}
         if eq.rhs.free_symbols.intersection(set(matrix_to_scalar_map.values())):
-            matrix_rhs = simplify(free_proba_utils.matricize_expr(eq.rhs, scalar_to_matrix_map))
+            matrix_rhs = simplify(
+            free_proba_utils.matricize_expr(eq.rhs, scalar_to_matrix_map))
             returned_eqs.append(Eq(eq.lhs, Function(r'trbar')(matrix_rhs)))
             display(returned_eqs[-1])
         else:

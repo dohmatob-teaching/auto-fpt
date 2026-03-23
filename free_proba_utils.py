@@ -18,6 +18,16 @@ def is_zero(stuff):
     else:
         return 0 * stuff == stuff
 
+
+def is_scalar_times_identity(M):
+    n, m = M.shape
+    if n != m:
+        return False
+    I = Identity(n)
+    a = M[0, 0]
+    return M / a == I
+
+
 def scalarize_block_matrix(M, var_bindings):
     """Converts a given block matrix in to scalar form in which every named
     variable matrix (block of M) is replaced / bound to a given named scalar
@@ -30,13 +40,8 @@ def scalarize_block_matrix(M, var_bindings):
         for j in range(M.blocks.shape[1]):
             block = blocks[i, j]
             p, q = block.shape
-            I = Identity(p)
-            if is_zero(block):
-                continue
-            elif block == I:
-                A[i, j] = 1
-            elif -block == I:
-                A[i, j] = -1
+            if is_scalar_times_identity(block):
+                A[i, j] = block[0, 0]
             else:
                 for var in matrices:
                     binding = var_bindings[var]

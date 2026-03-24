@@ -75,35 +75,50 @@ def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
     return expr, eqs
 
 
-def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
-         verbose=0, normalize=None, subs=None, variances=None,
-         display=pretty_print):
+def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
+        subs: dict={}, verbose: int=0, display=pretty_print):
     """
     Parameters
     ----------
     Q: BlockMatrix
-        Linear pencil
+        Linear pencil for target rational expression (expr)
     row_idx: int (required)
-        Row index of sought-for quantity withing pencil
+        Row index of expr within the given linear pencil Q
     col_idx: int (required)
-        Column index of sought-for quantity withing pencil
+        Column index of expr within the given linear pencil Q
+    variances: dict (required)
+        For every random matrix Z, Z1, Z2, W, ..., appearing in expr, this dict
+        should contain a key-value pair. Typical examples of such pairs include:
+
+        Z: 1 / (n * lambd), Z1: 1 / (n * lambd),  Z2: 1 / (n * lambda), W: 1 / d
+    subs: dict (optional)
+        Dictionary of variable substitutions to do at the end of the analysis
+        to make the final results more compact / insightful. Typical examples
+        include:
+
+        (input dim) d: n * phi, (network width) m: n * phi,
+
+        where n is the sample size. More advanced include:
+
+        (dataset1 size) n1: n * p1, (dataset2 size) n2: n * p2, etc.
     """
     if None in [row_idx, col_idx]:
         raise ValueError("Both row_idx and col_idx required in function call!")
     print(variances)
     if variances is None:
         raise ValueError("A dictionary must be specified for variances")
-    if random_matrices is None:
-        random_matrices = list(variances.keys())
-    else:
-        for key in variances:
-            assert key in random_matrices
+    random_matrices = list(variances.keys())
 
     n0 = Q.blocks.shape[0]
     if verbose:
         print("Q = ")
         display(Q)
         print("Size of pencil: %i x %i" % (n0, n0))
+        print()
+        print("Variance of entries of each random matrix:")
+        for k, v in variances.items():
+            print("\t%s: %s" % (k, v))
+
     free_symbols = list(Q.free_symbols)
     free_symbols = dict(zip(map(str, free_symbols), free_symbols))
     random_matrices = list(random_matrices)
@@ -113,35 +128,6 @@ def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
             rands.append(free_symbols[rmat])
         else:
             rands.append(rmat)
-
-    # This corrective piece of code only exist because the input pencils
-    # are usually as if n = lambda = 1
-    if variances is None:
-        n, lambd, d = [free_symbols.get(symb, symbols(symb))
-                       for symb in "n lambda d".split()]
-        variances = {}
-        if normalize is not None:
-            for rmat in rands:
-                rmat_name = str(rmat)
-                if rmat_name in ["Z_1", "Z_2", "Z", "S"]:
-                    if normalize == "full":
-                        if rmat_name == "S":
-                            var = 1 / d
-                        else:
-                            var = 1 / (n * lambd)
-                    elif normalize == "sample size":
-                        if rmat_name == "S":
-                            var = 1 / d
-                        else:
-                            var = 1 / n
-                    else:
-                        raise ValueError(normalize)
-                    variances[rmat] = var
-
-    if variances and verbose:
-        print("Variance of entries of each random matrix:")
-        for k, v in variances.items():
-            print("\t%s: %s" % (k, v))
 
     if verbose >= 2:
         for rand in rands:
@@ -276,49 +262,3 @@ def calc(Q, random_matrices=None, row_idx=None, col_idx=None,
         print("\n")
 
     return returned_eqs
-
-if __name__ == "__main__":
-    usage1 = 'python fpt.py --pencil-file test.pkl --i 1 --j -1'
-    usage1 += ' --normalize "full" --verbose 1'
-    usage2 = 'python fpt.py --pencil-file test.pkl --i 1'
-    usage2 += ' --j 9 --normalize "sample size" --verbose 1'
-    usage3  = 'python fpt.py --pencil-file test.pkl --i 1 --j 10'
-    usage3 += ' --random-matrix Z_1 --random-matrix Z_2 --random-matrix S '
-    usage3 += '--verbose 1 --normalize "full"'
-    parser = argparse.ArgumentParser(
-    description='Command-line OVPTR',
-    formatter_class=argparse.RawDescriptionHelpFormatter,
-    epilog='''Example usage:
-    (1) %s
-    (2) %s
-    (3) %s
-    ''' % (usage1, usage2, usage3))
-    parser.add_argument("--pencil-file", type=str, required=True,
-                        help="path to .pkl file containing precomputed pencil")
-    parser.add_argument("--i", type=int, required=True,
-                        help="sought-for normalized trace corresponds to entry"
-                             " (i, j) of inverse of pencil")
-    parser.add_argument("--j", type=int, required=True,
-                        help="sought-for normalized trace corresponds to entry"
-                             " (i, j) of inverse of pencil")
-    parser.add_argument("--random-matrix", type=str, action="append",
-                        default=[],
-                        help="specify a random matrix appearing in the pencil")
-    parser.add_argument("--verbose", type=int, default=0, choices=[0, 1, 2],
-                        help="specify verbosity level")
-    parser.add_argument("--normalize", default=None,
-                        choices=["full", "sample size"])
-    args = parser.parse_args()
-    args_dict = vars(args)
-
-    # Read-in the input file containing the linear pencil
-    pencil_file = os.path.abspath(args.pencil_file)
-    print("\nLoading input pencil file %s ..." % pencil_file)
-    with open(pencil_file, "rb") as inf:
-        Q = pickle.load(inf)
-
-    args_dict.pop("pencil_file")
-    args_dict["random_matrices"] = args_dict.pop("random_matrix")
-    args_dict["row_idx"] = args_dict.pop("i")
-    args_dict["col_idx"] = args_dict.pop("j")
-    calc(Q=Q, **args_dict)

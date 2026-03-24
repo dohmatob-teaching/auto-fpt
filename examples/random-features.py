@@ -50,7 +50,7 @@ XTXKinv_i = np.flatnonzero(u)[0]
 XTXKinv_j = np.flatnonzero(v)[0]
 
 # Compute the fixed-point equations for Kinv and X^T * X * Kinv using free probability theory.
-eqns = calc(Q, random_matrices=[X, W0, T0], row_idx=XTXKinv_i, col_idx=XTXKinv_j, subs={}, variances=variances)
+eqns = calc(Q, row_idx=XTXKinv_i, col_idx=XTXKinv_j, variances=variances)
 print(',\\\\\n'.join([latex(eqn) for eqn in eqns]))
 
 # Get the index of the entry in u, v corresponding to Kinv.

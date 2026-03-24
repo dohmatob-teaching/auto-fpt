@@ -9,7 +9,7 @@ All programs were tested using Python 3.10.12. The following minimal libraries a
 
 
 ## Deriving Fixed-Point Equations
-To compute the fixed-point equations for the expectation of your expression of interest (i.e., a rational function of rectangular random Gaussian matrices) in an asymptotic scaling limit, use `fpt.py`. `fpt.py` requires a linear pencil (in SymPy block matrix format) for the expression. It is additionally important to specify all random matrices appearing in the expression using the `--random-matrix` flag. For computational tractability, the program currently assumes that all population covariance matrices commute. For documentation of the program and all available options (e.g., taking the limits of certain variables), run `python fpt.py --help`. You may consult examples of how to use `fpt.py` in the `examples` folder.
+To compute the fixed-point equations for the expectation of your expression of interest (i.e., a rational function of rectangular random Gaussian matrices) in an asymptotic scaling limit, use `fpt.py`. `fpt.py` requires a linear pencil (in SymPy block matrix format) for the expression. You may consult examples of how to use `fpt.py` in the `examples` folder.
 
 ## Examples
 

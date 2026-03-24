@@ -75,8 +75,9 @@ def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
     return expr, eqs
 
 
-def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
-        subs: dict={}, verbose: int=0, display=pretty_print):
+def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
+         variances: dict=None, subs: dict={}, verbose: int=1,
+         display=pretty_print):
     """
     Parameters
     ----------
@@ -182,11 +183,14 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
         display(f)
 
     print("\nForming symmetrization of block matrices...")
-    Q_ = free_proba_utils.symmetrize_block_matrix(Q)
-    Qx_ = free_proba_utils.symmetrize_block_matrix(Qx)
-    if verbose:
-        print("Q_ = ")
-        display(Q_)
+    if symmetric:
+        Q_, Qx_ = Q, Qx
+    else:
+        Q_ = free_proba_utils.symmetrize_block_matrix(Q)
+        Qx_ = free_proba_utils.symmetrize_block_matrix(Qx)
+        if verbose:
+            print("Q_ = ")
+            display(Q_)
 
     print("\nChecking that pencil makes sense...")
     q_inv = free_proba_utils.inv_heuristic(q)
@@ -213,13 +217,20 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
     print("\nPreparing G matrix...")
     G = MatrixSymbol("G", n0, n0).as_explicit()
     G = matrices.dense.matrix_multiply_elementwise(G, mask)
-    G_ = free_proba_utils.symmetrize_matrix(G)
+    if symmetric:
+        G_ = G
+    else:
+        G_ = free_proba_utils.symmetrize_matrix(G)
 
     # Compute R-transform
     print("\nComputing R-transform R = R(G) matrix...")
     r_ = free_proba_utils.R_transform(Qx_, G_, rands=rands, variances=variances)
     r_.simplify()
-    r = r_[n0:, :n0]
+    if symmetric:
+        r = r_
+    else:
+        r = r_[n0:, :n0]
+
     if verbose:
         print("r = ")
         display(r)

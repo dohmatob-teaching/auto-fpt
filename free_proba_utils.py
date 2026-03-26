@@ -2,6 +2,7 @@
 Synopsis: Helper functions for FPT calculations (e.g R-transform, etc.).
 Author: Elvis Dohmatob, Arjun Subramonian
 """
+import sympy as sp
 from sympy import (Matrix, Identity, ZeroMatrix, BlockMatrix,
                    block_collapse, inv_quick, simplify, factor, sqrt,
                    MatrixExpr, Pow, Inverse, MatPow, Add, Mul, MatAdd, MatMul, Transpose)
@@ -28,34 +29,88 @@ def is_scalar_times_identity(M):
     return M / a == I
 
 
-def scalarize_block_matrix(M, var_bindings):
-    """Converts a given block matrix in to scalar form in which every named
-    variable matrix (block of M) is replaced / bound to a given named scalar
-    variable, i.e Z1 --> z1, C1 --> c1, ..."""
-    blocks = M.blocks
-    A = np.zeros(blocks.shape, dtype=object)
-    matrices = [var for var in var_bindings if isinstance(var, Transpose)]
-    matrices += [var for var in var_bindings if not isinstance(var, Transpose)]
-    for i in range(blocks.shape[0]):
-        for j in range(M.blocks.shape[1]):
-            block = blocks[i, j]
-            p, q = block.shape
-            if is_scalar_times_identity(block):
-                A[i, j] = block[0, 0]
-            else:
-                for var in matrices:
-                    binding = var_bindings[var]
-                    if var.shape != block.shape:
-                        continue
-                    elif (var in block.free_symbols
-                         or var.T in block.free_symbols):
-                        if p == q:
-                            A[i, j] = block[0, 0].subs(sqrt(var)[0, 0],
-                                                       sqrt(binding))
-                            A[i, j] = A[i, j].subs(var[0, 0], binding)
-                        else:
-                            A[i, j] = block[0, 0].subs(var[0, 0], binding)
-    return Matrix(A)
+def matrix_expr_to_scalar(expr, mat_to_scalar):
+    """
+    Convert one matrix expression into a scalar expression by replacing
+    MatrixSymbol objects using mat_to_scalar.
+
+    Examples:
+        X      -> x
+        X + Y  -> x + y
+        X*Y    -> x*y
+        X**2   -> x**2
+        X.I    -> 1/x
+        X.T    -> x
+        Identity(n) -> 1
+        ZeroMatrix(...) -> 0
+    """
+    # direct hit
+    if expr in mat_to_scalar:
+        return mat_to_scalar[expr]
+
+    # atoms / simple cases
+    if expr.is_Number or expr.is_Symbol:
+        return expr
+    if isinstance(expr, Identity):
+        return sp.Integer(1)
+    if isinstance(expr, ZeroMatrix):
+        return sp.Integer(0)
+    if isinstance(expr, Inverse):
+        return 1 / matrix_expr_to_scalar(expr.arg, mat_to_scalar)
+    if isinstance(expr, Transpose):
+        return matrix_expr_to_scalar(expr.arg, mat_to_scalar)
+    if isinstance(expr, MatPow):
+        base = matrix_expr_to_scalar(expr.base, mat_to_scalar)
+        exp = expr.exp
+        return base**exp
+    if isinstance(expr, (MatAdd, sp.Add)):
+        return sp.Add(*(matrix_expr_to_scalar(a, mat_to_scalar)
+                      for a in expr.args))
+    if isinstance(expr, (MatMul, sp.Mul)):
+        return sp.Mul(*(matrix_expr_to_scalar(a, mat_to_scalar)
+                      for a in expr.args))
+
+    # generic recursive fallback
+    if hasattr(expr, "args") and expr.args:
+        new_args = [matrix_expr_to_scalar(a, mat_to_scalar) for a in expr.args]
+        try:
+            return expr.func(*new_args)
+        except Exception:
+            # last fallback: rebuild as ordinary scalar expression if possible
+            return sp.sympify(expr.func(*new_args))
+
+    raise TypeError(f"Don't know how to convert expression: {expr!r}")
+
+
+def scalarize_block_matrix(Q, mat_to_scalar):
+    """
+    Convert an n x m block matrix Q into an n x m scalar matrix q
+    by replacing matrix symbols with scalar symbols.
+
+    Parameters
+    ----------
+    Q : BlockMatrix or explicit Matrix of block expressions
+    mat_to_scalar : dict
+        Example: {X: x, Y: y, Z: z, S: s}
+
+    Returns
+    -------
+    sympy.Matrix
+    """
+    if isinstance(Q, BlockMatrix):
+        blocks = Q.blocks
+    elif isinstance(Q, sp.MatrixBase):
+        blocks = Q
+    else:
+        try:
+            blocks = Q.blocks
+        except AttributeError:
+            raise TypeError("Q must be a BlockMatrix or a Matrix of block expressions.")
+
+    n, m = blocks.shape
+    return sp.Matrix(n, m, lambda i, j: sp.simplify(
+        matrix_expr_to_scalar(blocks[i, j], mat_to_scalar)
+    ))
 
 
 def decompose_Q(Q, rands):
@@ -78,6 +133,7 @@ def decompose_Q(Q, rands):
     Qx = BlockMatrix(rows)
     F_ = block_collapse(Q + Qx)
     return Qx, F_
+
 
 def R_transform(Qx, G, rands, variances={}):
     """

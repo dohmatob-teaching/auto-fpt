@@ -5,7 +5,7 @@ Author: Arjun Subramonian
 
 Run as `python -m examples.ridge-regression-error' from within auto-fpt.
 """
-from sympy import Symbol, MatrixSymbol, Identity, pprint, latex
+from sympy import Symbol, MatrixSymbol, Identity, pprint, latex, sqrt
 import numpy as np
 from fpt import calc
 import pickle as pkl
@@ -30,6 +30,7 @@ bias_expr = inv_term * T * inv_term * S
 # Q, (u, v) = compute_minimal_pencil(bias_expr)
 with open('examples/pencils/ridge-regression-error-bias-pencil.pkl', 'rb') as f:
     Q, (u, v) = pkl.load(f)
+Q = Q.subs(sqrt_S, sqrt(S))
 
 pprint(Q)
 print('u:', u)
@@ -51,6 +52,7 @@ var_expr = inv_term * (sqrt_S * Z.T * Z * sqrt_S) * inv_term * S
 # Q, (u, v) = compute_minimal_pencil(var_expr)
 with open('examples/pencils/ridge-regression-error-var-pencil.pkl', 'rb') as f:
     Q, (u, v) = pkl.load(f)
+Q = Q.subs(sqrt_S, sqrt(S))
 
 pprint(Q)
 print('u:', u)

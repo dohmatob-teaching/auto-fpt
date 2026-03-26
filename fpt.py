@@ -43,8 +43,8 @@ def remove_duplicates(G, expr, classes):
             expr = expr.subs(G[i, j], G[i0, j0])
     return simplify(expr)
 
-def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
-                                    subs=None):
+def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx,
+                                    classes=None):
     expr = diff_inv[row_idx, col_idx]
     expr = remove_duplicates(G=G, expr=expr, classes=classes)
     eqs = [Eq(G[row_idx, col_idx], expr)]
@@ -68,15 +68,13 @@ def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
         tmp.remove(eqs[0])
     eqs = eqs[:1] + tmp
 
-    subs = {k: v for k, v in subs.items() if k is not None}
-    if subs is not None:
-        eqs = [eq.subs(subs) for eq in eqs]
     eqs = [factor(simplify(eq)) for eq in eqs]
     return expr, eqs
 
 
-def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
-        subs: dict={}, verbose: int=0, display=pretty_print):
+def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
+         variances: dict=None, subs: dict={}, verbose: int=1,
+         display=pretty_print):
     """
     Parameters
     ----------
@@ -104,7 +102,6 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
     """
     if None in [row_idx, col_idx]:
         raise ValueError("Both row_idx and col_idx required in function call!")
-    print(variances)
     if variances is None:
         raise ValueError("A dictionary must be specified for variances")
     random_matrices = list(variances.keys())
@@ -182,11 +179,14 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
         display(f)
 
     print("\nForming symmetrization of block matrices...")
-    Q_ = free_proba_utils.symmetrize_block_matrix(Q)
-    Qx_ = free_proba_utils.symmetrize_block_matrix(Qx)
-    if verbose:
-        print("Q_ = ")
-        display(Q_)
+    if symmetric:
+        Q_, Qx_ = Q, Qx
+    else:
+        Q_ = free_proba_utils.symmetrize_block_matrix(Q)
+        Qx_ = free_proba_utils.symmetrize_block_matrix(Qx)
+        if verbose:
+            print("Q_ = ")
+            display(Q_)
 
     print("\nChecking that pencil makes sense...")
     q_inv = free_proba_utils.inv_heuristic(q)
@@ -213,13 +213,20 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
     print("\nPreparing G matrix...")
     G = MatrixSymbol("G", n0, n0).as_explicit()
     G = matrices.dense.matrix_multiply_elementwise(G, mask)
-    G_ = free_proba_utils.symmetrize_matrix(G)
+    if symmetric:
+        G_ = G
+    else:
+        G_ = free_proba_utils.symmetrize_matrix(G)
 
     # Compute R-transform
     print("\nComputing R-transform R = R(G) matrix...")
     r_ = free_proba_utils.R_transform(Qx_, G_, rands=rands, variances=variances)
     r_.simplify()
-    r = r_[n0:, :n0]
+    if symmetric:
+        r = r_
+    else:
+        r = r_[n0:, :n0]
+
     if verbose:
         print("r = ")
         display(r)
@@ -227,6 +234,7 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
     # Invert difference of R-transform and constant matrices
     print("\nComputing F - R(G) matrix...")
     diff = f - r
+    diff = diff.subs(subs)
     diff = simplify(diff)
     if verbose:
         print("F - R(G) = ")
@@ -242,8 +250,7 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
     _, eqs = construct_fixed_point_equations(G=G, diff_inv=diff_inv,
                                              row_idx=row_idx,
                                              col_idx=col_idx,
-                                             classes=classes,
-                                             subs=subs)
+                                             classes=classes)
 
     print("\nMatricizing equations...")
 
@@ -255,6 +262,7 @@ def calc(Q, row_idx: int=None, col_idx: int=None, variances: dict=None,
             matrix_rhs = simplify(
             free_proba_utils.matricize_expr(eq.rhs, scalar_to_matrix_map))
             returned_eqs.append(Eq(eq.lhs, Function(r'trbar')(matrix_rhs)))
+            eq = eq.subs(subs)
             display(returned_eqs[-1])
         else:
             returned_eqs.append(eq)

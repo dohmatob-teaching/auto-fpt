@@ -43,8 +43,8 @@ def remove_duplicates(G, expr, classes):
             expr = expr.subs(G[i, j], G[i0, j0])
     return simplify(expr)
 
-def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
-                                    subs=None):
+def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx,
+                                    classes=None):
     expr = diff_inv[row_idx, col_idx]
     expr = remove_duplicates(G=G, expr=expr, classes=classes)
     eqs = [Eq(G[row_idx, col_idx], expr)]
@@ -68,9 +68,6 @@ def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None,
         tmp.remove(eqs[0])
     eqs = eqs[:1] + tmp
 
-    subs = {k: v for k, v in subs.items() if k is not None}
-    if subs is not None:
-        eqs = [eq.subs(subs) for eq in eqs]
     eqs = [factor(simplify(eq)) for eq in eqs]
     return expr, eqs
 
@@ -105,7 +102,6 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
     """
     if None in [row_idx, col_idx]:
         raise ValueError("Both row_idx and col_idx required in function call!")
-    print(variances)
     if variances is None:
         raise ValueError("A dictionary must be specified for variances")
     random_matrices = list(variances.keys())
@@ -238,6 +234,7 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
     # Invert difference of R-transform and constant matrices
     print("\nComputing F - R(G) matrix...")
     diff = f - r
+    diff = diff.subs(subs)
     diff = simplify(diff)
     if verbose:
         print("F - R(G) = ")
@@ -253,8 +250,7 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
     _, eqs = construct_fixed_point_equations(G=G, diff_inv=diff_inv,
                                              row_idx=row_idx,
                                              col_idx=col_idx,
-                                             classes=classes,
-                                             subs=subs)
+                                             classes=classes)
 
     print("\nMatricizing equations...")
 
@@ -266,6 +262,7 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
             matrix_rhs = simplify(
             free_proba_utils.matricize_expr(eq.rhs, scalar_to_matrix_map))
             returned_eqs.append(Eq(eq.lhs, Function(r'trbar')(matrix_rhs)))
+            eq = eq.subs(subs)
             display(returned_eqs[-1])
         else:
             returned_eqs.append(eq)

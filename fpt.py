@@ -44,67 +44,56 @@ def remove_duplicates(G, expr, classes):
     return simplify(expr)
 
 
-from sympy import Eq, factor, simplify
-from sympy.matrices.expressions.matexpr import MatrixElement
-
 def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None):
-    expr = diff_inv[row_idx, col_idx]
-    expr = remove_duplicates(G=G, expr=expr, classes=classes)
-
-    eqs = [Eq(G[row_idx, col_idx], expr)]
-
-    # Map each matrix entry G[i,j] to its coordinates
-    entry_to_idx = {}
     nrows, ncols = G.shape
-    for i in range(nrows):
-        for j in range(ncols):
-            entry_to_idx[G[i, j]] = (i, j)
+    if not (isinstance(nrows, int) and isinstance(ncols, int)):
+        raise ValueError("G must have finite concrete integer dimensions.")
 
-    prev_terms = set()
-    while True:
-        flag = False
+    entry_to_idx = {G[i, j]: (i, j) for i in range(nrows) for j in range(ncols)}
 
-        # Detect both MatrixElement atoms and ordinary symbolic entries of G
+    def get_dependencies(expr):
         deps = set()
 
-        # Case 1: true MatrixElement objects
-        for a in expr.atoms(MatrixElement):
-            if a in entry_to_idx:
-                deps.add(entry_to_idx[a])
-            else:
-                # fallback: if a is literally G[i,j]-style
-                try:
-                    deps.add((a.args[1], a.args[2]))
-                except Exception:
-                    pass
-
-        # Case 2: ordinary symbols appearing in expr that match entries of G
-        for s in expr.free_symbols:
+        for s in getattr(expr, "free_symbols", set()):
             if s in entry_to_idx:
                 deps.add(entry_to_idx[s])
 
-        for i, j in deps:
-            if (i, j) not in prev_terms:
-                rhs = remove_duplicates(
-                    G=G,
-                    expr=diff_inv[i, j],
-                    classes=classes
-                )
-                eqs.append(Eq(G[i, j], rhs))
-                expr = expr.subs(G[i, j], rhs)
-                prev_terms.add((i, j))
-                flag = True
+        for a in expr.atoms(MatrixElement):
+            if a in entry_to_idx:
+                deps.add(entry_to_idx[a])
+            elif len(a.args) >= 3 and a.args[0] == G:
+                i, j = a.args[1], a.args[2]
+                if isinstance(i, int) and isinstance(j, int):
+                    if 0 <= i < nrows and 0 <= j < ncols:
+                        deps.add((i, j))
 
-        if not flag:
-            break
+        return deps
 
-    tmp = list(set(eqs[1:]))
-    if eqs[0] in tmp:
-        tmp.remove(eqs[0])
-    eqs = eqs[:1] + tmp
+    visited = set()
+    stack = [(row_idx, col_idx)]
+    order = []
 
-    eqs = [factor(simplify(eq)) for eq in eqs]
+    while stack:
+        node = stack.pop()
+        if node in visited:
+            continue
+        visited.add(node)
+        order.append(node)
+
+        i, j = node
+        rhs = remove_duplicates(G=G, expr=diff_inv[i, j], classes=classes)
+        for dep in get_dependencies(rhs):
+            if dep not in visited:
+                stack.append(dep)
+
+    eqs = []
+    for i, j in order:
+        rhs = remove_duplicates(G=G, expr=diff_inv[i, j], classes=classes)
+        eqs.append(Eq(G[i, j], factor(simplify(rhs))))
+
+    expr = remove_duplicates(G=G, expr=diff_inv[row_idx, col_idx], classes=classes)
     expr = factor(simplify(expr))
+
     return expr, eqs
 
 
@@ -304,9 +293,12 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
         print("F - R(G) = ")
         display(diff)
 
-    print("\nComputing inverse...")
+    if verbose:
+        print("Computing inv(F - R^o)")
+
     if use_sagemath:
-        print("(We'll use SageMath for speed...)")
+        if verbose:
+            print("(We'll use SageMath for speed...)")
         mapping = {}
         cnt = 0
         for i in range(nb):
@@ -328,9 +320,6 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
         diff_inv = diff_inv[:, :, 0]
     diff_inv[np.array(G) == 0] = 0
     diff_inv = sp.Matrix(diff_inv)
-
-    if verbose >= 1:
-        print("Computing inv(F - R^o)")
 
     print("\nComputing fixed-point equations...")
     _, eqs = construct_fixed_point_equations(G=G, diff_inv=diff_inv,

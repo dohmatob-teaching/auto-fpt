@@ -15,18 +15,18 @@ def sympy_matrix_to_sage(q_sympy, base_field=QQ, use_fraction_field=True,
         raise TypeError("q_sympy must be a SymPy Matrix")
 
     symbols = sorted(q_sympy.free_symbols, key=lambda s: s.name)
-    names = [s.name for s in symbols]
+    names = list(set([s.name for s in symbols]))
 
     if names:
         R = PolynomialRing(base_field, names=names, order=order)
     else:
         R = PolynomialRing(base_field, names=['dummy'], order=order)
 
-    P = R.fraction_field() if use_fraction_field else R
+    FF = R.fraction_field() if use_fraction_field else R
 
     # Crucial: use generators from the ACTUAL target parent
     if names:
-        local_dict = dict(zip(names, P.gens()))
+        local_dict = dict(zip(names, FF.gens()))
     else:
         local_dict = {}
 
@@ -40,8 +40,8 @@ def sympy_matrix_to_sage(q_sympy, base_field=QQ, use_fraction_field=True,
         for j in range(q_sympy.cols)
     ]
 
-    M = matrix(P, q_sympy.rows, q_sympy.cols, entries)
-    return R, P, M
+    M = matrix(FF, q_sympy.rows, q_sympy.cols, entries)
+    return R, FF, M
 
 
 def sage_matrix_to_sympy(M_sage):

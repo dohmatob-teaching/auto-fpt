@@ -10,14 +10,22 @@ from sympy.matrices.expressions.matexpr import Transpose
 import numpy as np
 
 
-def is_zero(stuff):
-    if hasattr(stuff, "blocks"):
-        for block in stuff.blocks:
-            if not is_zero(block):
-                return False
+def is_zero(obj):
+    # explicit zero matrix expression
+    if obj.is_ZeroMatrix:
         return True
+
+    # explicit matrices often have this
+    z = getattr(obj, "is_zero_matrix", None)
+    if z is not None:
+        return z is True
+
+    # scalars
+    z = getattr(obj, "is_zero", None)
+    if z is not None:
+        return z is True
     else:
-        return 0 * stuff == stuff
+        raise RuntimeError
 
 
 def is_scalar_times_identity(M):
@@ -131,15 +139,16 @@ def decompose_Q(Q, rands):
                 row.append(item)
         rows.append(row)
     Qx = BlockMatrix(rows)
-    F_ = block_collapse(Q + Qx)
-    return Qx, F_
+    F = block_collapse(Q + Qx)
+
+    return Qx, F
 
 
-def R_transform(Qx, G, rands, variances={}):
+def R_transform(Qx, G, variances={}, rands=None):
     """
     Computes the R-transform of Qx evaluated at G, i.e
 
-        varphi(G \otimes 1 - Qx)^{-1}.
+        Entrace(G \otimes I - Qx)^{-1}.
 
     The output is an n0xn0 complex matrix with
 
@@ -154,6 +163,7 @@ def R_transform(Qx, G, rands, variances={}):
     """
     from sympy.stats import Normal, E
     mapping = {}
+    rands = list(variances.keys())
     for i, Z in enumerate(rands):
         std = sqrt(variances.get(Z, 1))
         z = Normal("z_%s" % i, 0, std)
@@ -182,12 +192,55 @@ def R_transform(Qx, G, rands, variances={}):
                     if block2.shape != block1.shape[::-1]:
                         continue
                     cov = E(qx[i, k] * qx[L, j])
-                    assert block2 not in [block1, -block1]
+                    assert block2 not in [block1, -block1], (block2, block1)
                     shape = Qx.blocks[k, L].shape
                     assert shape[1] == shape[0]
                     m = shape[0]
                     R[i, j] += cov * G[k, L] * m
     return Matrix(R)
+
+
+def lens(block, random_matrices):
+    if is_zero(block):
+        return None, None
+    shape = block.shape
+    free_symbols = list(block.free_symbols)
+    if len(free_symbols) == 1:
+        free_symbol = free_symbols[0]
+        if free_symbol in random_matrices:
+            c = sp.sqrt(block[0, 0] / free_symbol[0, 0])
+            return free_symbol, c
+    return None, None
+
+
+def R_transform_bis(Q0, G, variances):
+    """
+    REturns the R-transform of G w.r.t to the random structure in the nb x nb
+    block matrix Q0.
+    """
+    nb = Q0.blocks.shape[0]
+    random_matrices = list(variances.keys())
+    R = np.zeros((nb, nb), dtype=object)
+    for i in range(nb):
+        for k in range(nb):
+            block = Q0.blocks[i, k]
+            free_symbol, c = lens(block, random_matrices)
+            if free_symbol is None:
+                continue
+            for L in range(nb):
+                for j in range(nb):
+                    other_block = Q0.blocks[L, j]
+                    other_free_symbol, other_c = lens(other_block,
+                    random_matrices)
+                    if other_free_symbol is None:
+                        continue
+                    if (other_free_symbol == free_symbol
+                    and other_block.shape == block.shape[::-1]):
+                        alpha = other_block.shape[0]
+                        var = c * other_c
+                        var *= variances[free_symbol]
+                        R[i, j] += var * alpha * G[k, L]
+    return sp.Matrix(R)
 
 
 def symmetrize_matrix(q):
@@ -219,35 +272,6 @@ def symmetrize_block_matrix(Q):
             Q.T.blocks[0, j].shape[1]))
         adj.append(adj_row)
     return BlockMatrix(adj)
-
-
-def inv_heuristic(diff):
-    """Heuristic computation of the inverse of a of a matrix of the form
-
-        X = [A B]
-            [C D]
-
-    where A and D are sparse.
-    """
-    return diff.inv()  # XXX rm
-    n0 = diff.shape[0]
-    if n0 <= 5:
-        return diff.inv()
-    assert diff.shape[1] == n0
-    m = n0 // 2
-    A = diff[:m, :m]
-    B = diff[:m, m:]
-    C = diff[m:, :m]
-    D = diff[m:, m:]
-    Ainv = simplify(inv_quick(A)).applyfunc(factor)
-    sc = D - C@Ainv@B
-    scinv = simplify(inv_quick(sc)).applyfunc(factor)
-    A_ = Ainv + Ainv@B@scinv@C@Ainv
-    B_ = -Ainv@B@scinv
-    C_ = -scinv@C@Ainv
-    D_ = scinv
-    inv = BlockMatrix([[A_, B_], [C_, D_]]).as_explicit()
-    return simplify(inv).applyfunc(factor)
 
 
 def matricize_expr(expr, conv_map):

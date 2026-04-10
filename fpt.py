@@ -6,26 +6,26 @@ Author: Elvis Dohmatob, Arjun Subramonian
 import os
 import warnings
 import argparse
-from importlib import reload
 
 import pickle
 import numpy as np
 
+import sympy as sp
 from sympy import (Function, symbols, Matrix, matrices, MatrixSymbol,
                    simplify, simplify, factor, Eq, pretty_print)
 from sympy.matrices.expressions.matexpr import MatrixElement
 
 import free_proba_utils
-reload(free_proba_utils)
+
 
 def find_duplicates(q_inv, Q):
     """Gather entries of given matrix into equivalence classes of pairs of
     indices with same value q_inv[i, j]."""
     assert q_inv.shape == Q.blocks.shape
-    n0 = q_inv.shape[0]
+    nb = q_inv.shape[0]
     classes = {}
-    for i in range(n0):
-        for j in range(n0):
+    for i in range(nb):
+        for j in range(nb):
             term = simplify(q_inv[i, j])
             shape = Q.blocks[i, j].shape
             if len(term.free_symbols) > 0:
@@ -73,8 +73,8 @@ def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx,
 
 
 def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
-         variances: dict=None, subs: dict={}, verbose: int=1,
-         display=pretty_print):
+         variances: dict=None, subs: dict={}, use_sagemath: bool=False,
+         verbose: int=1, display=pretty_print):
     """
     Parameters
     ----------
@@ -89,6 +89,9 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
         should contain a key-value pair. Typical examples of such pairs include:
 
         Z: 1 / (n * lambd), Z1: 1 / (n * lambd),  Z2: 1 / (n * lambda), W: 1 / d
+    use_sagemath: bool (optional)
+        If True, SageMath backend will be used for computing the inverse of
+        scalar matrices (it its lightspeed faster than Sympy!)
     subs: dict (optional)
         Dictionary of variable substitutions to do at the end of the analysis
         to make the final results more compact / insightful. Typical examples
@@ -106,11 +109,11 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
         raise ValueError("A dictionary must be specified for variances")
     random_matrices = list(variances.keys())
 
-    n0 = Q.blocks.shape[0]
+    nb = Q.blocks.shape[0]
     if verbose:
         print("Q = ")
         display(Q)
-        print("Size of pencil: %i x %i" % (n0, n0))
+        print("Size of pencil: %i x %i" % (nb, nb))
         print()
         print("Variance of entries of each random matrix:")
         for k, v in variances.items():
@@ -178,22 +181,27 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
         print("f = ")
         display(f)
 
-    print("\nForming symmetrization of block matrices...")
+
+    print("\nChecking that pencil makes sense...")
+    if use_sagemath:
+        print("We'll use SageMath (for speed) to compute inverse of pencil...)")
+        import sage_utils
+        q_inv = sage_utils.sympy_inverse_via_sage(q)
+    else:
+        q_inv = q.inv()
+    print("q_inv[%i, %i] = " % (row_idx, col_idx))
+    display(q_inv[row_idx, col_idx])
+    print("\nWhere")
+    _print_identification()
     if symmetric:
         Q_, Qx_ = Q, Qx
     else:
+        print("\nSymmetrizing the provided linear pencil (Q)...")
         Q_ = free_proba_utils.symmetrize_block_matrix(Q)
         Qx_ = free_proba_utils.symmetrize_block_matrix(Qx)
         if verbose:
             print("Q_ = ")
             display(Q_)
-
-    print("\nChecking that pencil makes sense...")
-    q_inv = free_proba_utils.inv_heuristic(q)
-    print("q_inv[%i, %i] = " % (row_idx, col_idx))
-    display(q_inv[row_idx, col_idx])
-    print("\nWhere")
-    _print_identification()
 
     print("\nIdentifying indices of entries which must be equal in G...")
     classes = find_duplicates(q_inv, Q)
@@ -205,13 +213,33 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
     print("\nInferring relevant mask...")
     print()
     mask = np.ones(q.shape, dtype=int)
+
+    # trace of zero matrix is zero
     mask[np.array(q_inv, dtype=object) == 0] = 0
-    mask = Matrix(mask)  # sparsity structure of G, infered from that of Qinv
+
+    # trace of non-square matrix is zero (by convention!)
+    for i in range(nb):
+        for j in range(nb):
+            shape = Q.blocks[i, j].shape
+            if shape[0] != shape[1]:
+                mask[i, j] = 0
+
+    mask = Matrix(mask)
     if verbose:
         display(mask)
 
     print("\nPreparing G matrix...")
-    G = MatrixSymbol("G", n0, n0).as_explicit()
+    if symmetric:
+        G = np.zeros((nb, nb), dtype=object)
+        for i in range(nb):
+            for j in range(nb):
+                if i <= j:
+                    G[i, j] = sp.Symbol("G_{%d, %d}" % (i, j))
+                else:
+                    G[i, j] = G[j, i]
+        G = sp.Matrix(G)
+    else:
+        G = sp.MatrixSymbol("G", nb, nb).as_explicit()
     G = matrices.dense.matrix_multiply_elementwise(G, mask)
     if symmetric:
         G_ = G
@@ -220,12 +248,12 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
 
     # Compute R-transform
     print("\nComputing R-transform R = R(G) matrix...")
-    r_ = free_proba_utils.R_transform(Qx_, G_, rands=rands, variances=variances)
+    r_ = free_proba_utils.R_transform(Qx_, G_, variances=variances)
     r_.simplify()
     if symmetric:
         r = r_
     else:
-        r = r_[n0:, :n0]
+        r = r_[nb:, :nb]
 
     if verbose:
         print("r = ")
@@ -241,10 +269,32 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
         display(diff)
 
     print("\nComputing inverse...")
-    diff_inv = free_proba_utils.inv_heuristic(diff)
-    if verbose:
-        print("inv(F - R(G)) = ")
-        display(diff_inv)
+    if use_sagemath:
+        print("(We'll use SageMath for speed...)")
+        mapping = {}
+        cnt = 0
+        for i in range(nb):
+            for j in range(nb):
+                if G[i, j] != 0:
+                    mapping[G[i, j]] = "g%i" % cnt
+                    cnt += 1
+        reverse_mapping = dict((v, k) for k, v in mapping.items())
+        diff_inv = sage_utils.sympy_inverse_via_sage(
+            diff.subs(mapping)).subs(reverse_mapping)
+        diff_inv = np.array(diff_inv, dtype=object)
+    else:
+        diff_inv = np.zeros((nb, nb, 1), dtype=object)
+        for j in range(nb):
+            b = np.zeros(nb, dtype=object)
+            b[j] = 1
+            b = sp.Matrix(b[:, None])
+            diff_inv[:, j] = diff.solve(b, method="LU").applyfunc(sp.factor)
+        diff_inv = diff_inv[:, :, 0]
+    diff_inv[np.array(G) == 0] = 0
+    diff_inv = sp.Matrix(diff_inv)
+
+    if verbose >= 1:
+        print("Computing inv(F - R^o)")
 
     print("\nComputing fixed-point equations...")
     _, eqs = construct_fixed_point_equations(G=G, diff_inv=diff_inv,
@@ -255,9 +305,9 @@ def calc(Q, row_idx: int=None, col_idx: int=None, symmetric: bool=False,
     print("\nMatricizing equations...")
 
     print("\nThe fixed-point equations are:\n")
+    scalar_to_matrix_map = {v : k for k, v in matrix_to_scalar_map.items()}
     returned_eqs = []
     for eq in eqs:
-        scalar_to_matrix_map = {v : k for k, v in matrix_to_scalar_map.items()}
         if eq.rhs.free_symbols.intersection(set(matrix_to_scalar_map.values())):
             matrix_rhs = simplify(
             free_proba_utils.matricize_expr(eq.rhs, scalar_to_matrix_map))

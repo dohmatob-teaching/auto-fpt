@@ -43,32 +43,68 @@ def remove_duplicates(G, expr, classes):
             expr = expr.subs(G[i, j], G[i0, j0])
     return simplify(expr)
 
-def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx,
-                                    classes=None):
+
+from sympy import Eq, factor, simplify
+from sympy.matrices.expressions.matexpr import MatrixElement
+
+def construct_fixed_point_equations(G, diff_inv, row_idx, col_idx, classes=None):
     expr = diff_inv[row_idx, col_idx]
     expr = remove_duplicates(G=G, expr=expr, classes=classes)
+
     eqs = [Eq(G[row_idx, col_idx], expr)]
 
-    # Gather subtree of fixed-point equations contraining the target expr
+    # Map each matrix entry G[i,j] to its coordinates
+    entry_to_idx = {}
+    nrows, ncols = G.shape
+    for i in range(nrows):
+        for j in range(ncols):
+            entry_to_idx[G[i, j]] = (i, j)
+
     prev_terms = set()
     while True:
         flag = False
+
+        # Detect both MatrixElement atoms and ordinary symbolic entries of G
+        deps = set()
+
+        # Case 1: true MatrixElement objects
         for a in expr.atoms(MatrixElement):
-            if (a.args[1], a.args[2]) not in prev_terms:
-                eqs.append(Eq(G[a.args[1], a.args[2]],
-                              diff_inv[a.args[1], a.args[2]]))
-                expr = expr.subs(G[a.args[1], a.args[2]],
-                                 diff_inv[a.args[1], a.args[2]])
-                prev_terms.add((a.args[1], a.args[2]))
+            if a in entry_to_idx:
+                deps.add(entry_to_idx[a])
+            else:
+                # fallback: if a is literally G[i,j]-style
+                try:
+                    deps.add((a.args[1], a.args[2]))
+                except Exception:
+                    pass
+
+        # Case 2: ordinary symbols appearing in expr that match entries of G
+        for s in expr.free_symbols:
+            if s in entry_to_idx:
+                deps.add(entry_to_idx[s])
+
+        for i, j in deps:
+            if (i, j) not in prev_terms:
+                rhs = remove_duplicates(
+                    G=G,
+                    expr=diff_inv[i, j],
+                    classes=classes
+                )
+                eqs.append(Eq(G[i, j], rhs))
+                expr = expr.subs(G[i, j], rhs)
+                prev_terms.add((i, j))
                 flag = True
+
         if not flag:
             break
+
     tmp = list(set(eqs[1:]))
     if eqs[0] in tmp:
         tmp.remove(eqs[0])
     eqs = eqs[:1] + tmp
 
     eqs = [factor(simplify(eq)) for eq in eqs]
+    expr = factor(simplify(expr))
     return expr, eqs
 
 
